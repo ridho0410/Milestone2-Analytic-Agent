@@ -1,0 +1,68 @@
+# Dua service: `api` (FastAPI) dan `ui` (Streamlit).
+#
+# Nama service, port container (8000/8501), env_file runtime, dan volume SQLite
+# dipertahankan sesuai scaffold penyelenggara agar grader dapat menjalankan
+# seluruh submission dengan satu perintah:
+#
+#   docker compose up --build
+#
+# Rahasia TIDAK pernah ditanam di image. Semuanya disuntikkan saat runtime
+# melalui `.env` (lihat .env.example).
+
+services:
+  api:
+    image: delivery-agent:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file:
+      - .env
+    environment:
+      # SQLite percakapan diarahkan ke volume bernama agar bertahan saat
+      # container API dibuat ulang (`docker compose restart api`).
+      SQLITE_PATH: /app/data/conversations.sqlite3
+    volumes:
+      - conversation-data:/app/data
+      # Dataset CSV penyelenggara di-mount dari folder `data/` sebagai folder
+      # baca-saja. Mount ini AKTIF secara bawaan.
+      #
+      # Folder `data/` sengaja TIDAK disalin ke dalam image (lihat
+      # .dockerignore) agar dataset Gold tidak ikut terdistribusi bersama
+      # submission; ia hanya dipasang saat runtime.
+      #
+      # Untuk menjalankan mode demo offline (tanpa Neon), set pada `.env`:
+      #     GOLD_BACKEND=sqlite
+      #     GOLD_DATA_DIR=/app/gold-data
+      # lalu `docker compose restart api`. Tidak perlu mengubah berkas ini.
+      - ./data:/app/gold-data:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  ui:
+    image: delivery-agent:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      ["streamlit", "run", "app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+    environment:
+      AGENT_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8501:8501"
+
+volumes:
+  conversation-data:

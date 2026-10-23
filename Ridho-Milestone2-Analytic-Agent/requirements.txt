@@ -1,0 +1,36 @@
+# Dependensi backend agent analitik pengiriman.
+# Backend dan UI memakai dependensi yang sama.
+
+# --- API ---
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+
+# --- Validasi SQL (AST parser) ---
+# Wajib: validator berbasis AST, bukan pencocokan prefix string.
+sqlglot>=25,<31
+
+# --- Klien HTTP (UI Streamlit + opsional panggilan model) ---
+httpx>=0.27,<1
+
+# --- LangChain (jalur utama lapisan model) ---
+# Dipakai untuk:
+#   1. SQLDatabase  -> membaca struktur tabel dari database (introspeksi skema).
+#      Method run()-nya TIDAK dipakai; seluruh eksekusi tetap lewat sql_guard.
+#   2. ChatPromptTemplate | ChatOpenAI | StrOutputParser -> rantai jawaban.
+# Bila paket ini tidak terpasang, aplikasi tetap berjalan penuh: llm_client.py
+# memakai httpx dan prompt memakai kartu skema statis.
+langchain-community>=0.4.2,<0.5
+langchain-openai>=0.3.34,<1
+langchain-core>=1.6.10,<2
+# SQLAlchemy dibutuhkan SQLDatabase sebagai lapisan koneksi.
+SQLAlchemy>=2,<3
+
+# --- Driver PostgreSQL untuk Neon ---
+# Hanya diperlukan bila GOLD_BACKEND=neon.
+psycopg[binary]>=3.2,<4
+
+# --- UI ---
+streamlit>=1.40,<2
+
+# --- Pengujian ---
+pytest>=8,<10
