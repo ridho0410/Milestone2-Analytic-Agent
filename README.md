@@ -1,216 +1,268 @@
-# Milestone Fase 2 — Agent Analitik Pengiriman
+# Agent Analitik Pengiriman
 
-## 1. Skenario
+Chatbot untuk menganalisis pengiriman paket melalui pertanyaan bahasa alami. Pengguna dapat menanyakan jumlah kiriman, ketepatan waktu carrier, tren per kota, dan refund, lalu melanjutkan pertanyaan dalam percakapan yang sama.
 
-Anda adalah AI Engineer untuk tim operasi pengiriman paket. Manajer operasional ingin menanyakan performa carrier dan kota tujuan dalam bahasa alami, misalnya:
+Aplikasi menggunakan **Streamlit** sebagai antarmuka, **FastAPI** sebagai backend, dan **LangChain/ChatOpenAI** untuk memahami pertanyaan serta menyusun proposal SQL. Data analitik dibaca dari tabel Gold di **Neon PostgreSQL** atau CSV lokal. Riwayat percakapan disimpan terpisah di **SQLite** dan dibatasi berdasarkan identitas dari token demo.
 
-- “Berapa jumlah kiriman pada Agustus 2026?”
-- “Carrier mana yang paling tepat waktu pada bulan tersebut?”
-- “Bagaimana tren kiriman ke Bandung per minggu? Bagaimana dibanding minggu sebelumnya?”
-- “Berapa refund rate untuk layanan express?”
+## Fitur utama
 
-Penyelenggara sudah menyiapkan **dataset Gold sintetis di Neon** dan aplikasi Streamlit awal. Tugas Anda adalah membangun agent dan backend yang mengubah pertanyaan menjadi kueri analitik yang aman, mengambil fakta dari database, lalu menjawab berdasarkan hasilnya. Agent harus bisa melanjutkan percakapan tanpa membocorkan riwayat pengguna lain.
-
-Catatan operasional dalam database dapat mengandung instruksi berbahaya. Perlakukan catatan itu sebagai **data**, bukan perintah untuk agent. Pertanyaan yang tidak berhubungan dengan analitik pengiriman harus ditolak dengan jelas dan singkat.
-
-- **Level:** Intermediate
-- **Waktu:** 3 sesi mentoring × 180 menit, ditambah demo 5–7 menit
-- **Hasil utama:** backend agent, UI yang terhubung, image Docker yang dapat dijalankan, tes, laporan evaluasi, dan dokumentasi keputusan teknis
-
-## 2. Tujuan Milestone
-
-Bangun alur berikut:
+- Analisis berdasarkan hasil kueri, disertai periode, filter, dan dasar data.
+- Pertanyaan lanjutan yang memakai konteks percakapan sebelumnya.
+- Grafik untuk hasil yang sesuai, serta riwayat pesan dan grafik yang tersimpan.
+- Membuat, membuka, mengganti judul, dan menghapus percakapan milik pengguna sendiri.
+- Validasi SQL hanya baca, pembatasan eksekusi, dan penolakan permintaan di luar analitik pengiriman.
 
 ```text
-Pengguna A atau B
-       ↓
-Streamlit yang disediakan atau UI buatan Anda
-       ↓
-Backend API: verifikasi bearer token demo
-       ├── SQLite: percakapan milik pengguna yang terverifikasi
-       └── Agent: pahami pertanyaan dan konteks follow-up
-                    ↓
-              SQL guard + batas eksekusi
-                    ↓
-              Neon Gold (role hanya baca)
-                    ↓
-              Jawaban yang didukung hasil kueri
+Pengguna → Streamlit → FastAPI + verifikasi token → Agent → SQL guard → Gold
+                           ↕
+                    SQLite percakapan
 ```
 
-Semua **fakta bisnis** dalam jawaban harus berasal dari tabel Gold Neon yang disediakan. SQLite hanya menyimpan percakapan. UI tidak boleh menyimpan kredensial Neon atau mengakses Gold secara langsung. Agent tidak mempunyai tool untuk mencari web, membaca sumber analitik lain, atau mengubah data.
+## 1. Persiapan
 
-## 3. Apa yang Harus Anda Bangun
+Unduh atau clone proyek, lalu buka folder utamanya di VS Code. Jalankan semua perintah dari folder yang berisi `app.py`, `src/`, `requirements.lock.txt`, dan `compose.yaml`.
 
-### A. Backend API dan identitas demo
+Pilih salah satu cara menjalankan:
 
-Buat API yang dipanggil oleh Streamlit. API memverifikasi dua bearer token demo yang diberikan penyelenggara dan memetakan masing-masing token ke identitas pengguna pada **server**. Nilai `user_id` dari browser, bila ada, tidak boleh menentukan hak akses. Token tidak valid harus ditolak dengan `401`.
+- **Docker:** gunakan Docker Desktop/Engine yang sudah berjalan dan Docker Compose v2. Python di komputer host tidak diperlukan.
+- **Python lokal:** gunakan Python **3.13** agar sesuai dengan lingkungan Dockerfile dan lock file proyek.
 
-Implementasikan endpoint pada [brief.md](brief.md#5-kontrak-api-untuk-ui-awal): health check, membuat percakapan, menampilkan daftar percakapan, membaca satu percakapan, dan mengirim pesan. Berikan error yang aman tanpa stack trace, connection string, prompt sistem, atau isi percakapan orang lain.
+Untuk menjawab pertanyaan, siapkan API key dan akses model yang mendukung **tool calling** serta **structured output**. Untuk jalur Neon, siapkan juga URL koneksi Gold dengan role **hanya baca** dari penyelenggara atau database yang sudah disiapkan sendiri.
 
-### B. Penyimpanan percakapan dan follow-up
+## 2. Buat konfigurasi `.env`
 
-Simpan percakapan serta pesan pada SQLite lokal. Setiap percakapan memiliki satu pemilik. Pada operasi **list, read, dan send**, cek bahwa ID percakapan memang milik identitas dari token. Jika pengguna B mencoba membuka atau menambah pesan pada percakapan A, kembalikan `404` dan jangan ubah jumlah pesan A.
+Salin `.env.example` menjadi `.env` jika belum ada.
 
-Agent harus memakai konteks dari percakapan yang sama untuk follow-up. Contoh: setelah bertanya “Berapa kiriman ke Bandung pada Agustus 2026?”, pengguna dapat bertanya “Bagaimana dibanding minggu sebelumnya?”. Jika konteks yang dibutuhkan tidak ada atau ambigu, minta klarifikasi. Batasi panjang riwayat yang dikirim ke model agar biaya, latency, dan risiko dari pesan lama tetap terkendali.
+**Windows PowerShell:**
 
-### C. Agent analitik dan akses Gold
+```powershell
+if (-not (Test-Path -LiteralPath '.env')) {
+    Copy-Item -LiteralPath '.env.example' -Destination '.env'
+}
+```
 
-Gunakan model/provider yang Anda pilih; catat nama dan versi model dalam submission. Penggunaan LangChain atau framework lain opsional. Agent harus memiliki tujuan, tool, state percakapan, batas langkah, kondisi berhenti, dan perilaku ketika tool gagal. Jelaskan keputusan ini pada diagram atau README submission.
+**macOS/Linux:**
 
-Agent perlu mengubah pertanyaan analitik menjadi kueri SQL hanya baca, atau representasi kueri terstruktur yang setara. Tool database hanya boleh membaca tabel dan kolom pada [gold-contract.md](gold-contract.md). Backend harus memvalidasi SQL **sebelum** mengirimnya ke Neon: satu pernyataan `SELECT`, tabel/kolom allowlist, tanpa operasi tulis atau akses schema lain, serta batas waktu, jumlah baris, dan ukuran hasil. Gunakan parameter untuk nilai filter yang berasal dari pengguna bila memungkinkan. Prefix `SELECT` saja tidak cukup sebagai validator.
+```bash
+if [ ! -f .env ]; then cp .env.example .env; fi
+```
 
-Koneksi Neon peserta memakai role yang hanya memiliki akses baca ke Gold. Validasi backend dan izin database harus bekerja bersama. Jangan menjalankan SQL hasil model menggunakan kredensial admin penyelenggara.
+Buka `.env` dan ubah nilai yang sesuai. Berikut konfigurasi untuk **analisis dengan data Neon dan model aktif**:
 
-### D. Jawaban, scope, dan prompt injection
+```dotenv
+GOLD_BACKEND=neon
+GOLD_DATABASE_URL=postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require
+DEMO_TOKEN_A=GANTI_DENGAN_TOKEN_ACAK_A
+DEMO_TOKEN_B=GANTI_DENGAN_TOKEN_ACAK_B
+LLM_ENABLED=true
+OPENAI_API_KEY=GANTI_DENGAN_API_KEY_ANDA
+OPENAI_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
+SQLITE_PATH=./data/conversations.sqlite3
+```
 
-Jawaban harus menyebutkan angka, unit, periode, dan filter yang dipakai. Untuk persentase, jelaskan pembilang serta penyebutnya. Contohnya, **on-time rate** menggunakan kiriman yang sudah delivered sebagai penyebut; kiriman `in_transit` tidak otomatis dianggap terlambat. Definisi lengkap ada di [gold-contract.md](gold-contract.md).
+Ganti seluruh placeholder dengan nilai milik sendiri. Gunakan dua token demo yang panjang, acak, tidak kosong, dan berbeda; token tersebut nantinya dimasukkan pada UI. Jangan menambahkan nama variabel yang sama dua kali.
 
-Jika hasil kueri kosong, periode di luar dataset, atau pertanyaan ambigu, berikan `no_data` atau minta klarifikasi. Jangan meminta model menebak angka. Tolak permintaan seperti ramalan cuaca, nasihat medis, menulis email, atau mengubah status kiriman karena semuanya di luar tujuan agent.
+`gpt-4o-mini` adalah default konfigurasi proyek, bukan jaminan akses model pada setiap akun. Sesuaikan model/provider dengan akses yang tersedia dan kompatibilitas tool calling/structured output. Pemakaian model dapat dikenai biaya.
 
-Uji dua sumber prompt injection: pesan pengguna dan teks `exception_note` yang dibaca dari Gold. Teks database tidak boleh menaikkan hak akses, mengganti instruksi agent, memicu `UPDATE`, atau membuat agent mengungkap secret. Jika pengguna meminta ringkasan catatan, agent boleh memperlakukannya sebagai isi data yang dikutip secara aman.
+**Penting:** `.env.example` memulai dengan `LLM_ENABLED=false`. Pada implementasi saat ini, nilai tersebut menonaktifkan analisis dan menghasilkan `no_data` dengan pesan bahwa layanan AI dinonaktifkan. Ini bukan mode chatbot analitik offline. Atur `true` dan isi API key untuk mencoba pertanyaan analitik.
 
-### E. Pengujian dan evaluasi
+### Alternatif: data CSV lokal
 
-Buat minimal **12 kasus evaluasi yang dapat diulang**: empat ketepatan analitik, dua follow-up, dua scope/abstain, dua prompt injection, dan dua otorisasi/SQL. Untuk setiap kasus, catat input, expected, actual, pass/fail, dan alasan bila gagal. Tambahkan tes otomatis khusus untuk SQL hanya baca dan akses lintas pengguna. Gunakan [public-checks.md](public-checks.md) sebagai awal.
+Untuk mencoba tanpa koneksi Neon, ubah pengaturan sumber data:
 
-> **Checkpoint:** Pertanyaan analitik harus dapat ditelusuri ke hasil kueri yang benar-benar dijalankan. Jawaban yang terdengar masuk akal tetapi tidak didukung baris Gold tidak memenuhi milestone.
+```dotenv
+GOLD_BACKEND=sqlite
+GOLD_DATABASE_URL=
+GOLD_DATA_DIR=./data
+```
 
-## 4. Yang Disediakan dan Batas Pekerjaan
+Pastikan dataset sintetis berikut tersedia dari paket proyek atau penyelenggara:
 
-| Disediakan penyelenggara | Dibangun peserta |
+```text
+data/
+├── shipment_fact.csv
+├── carrier_daily.csv
+└── city_daily.csv
+```
+
+Backend memuat CSV tersebut ke SQLite dalam memori untuk kueri analitik. Ini berbeda dari file SQLite yang menyimpan percakapan. Model tetap diperlukan untuk memahami pertanyaan; `LLM_ENABLED=true` dan API key tetap berlaku.
+
+**Jika memakai Docker dengan CSV, atur `GOLD_DATA_DIR=/app/gold-data`.** Compose sudah memasang folder `./data` pada lokasi tersebut secara read-only. Dataset tidak disalin ke image. Untuk demonstrasi milestone dengan fakta dari Neon, gunakan kembali `GOLD_BACKEND=neon`.
+
+## 3. Jalankan dengan Docker
+
+Setelah `.env` siap:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+Buka:
+
+| Layanan | Alamat |
 |---|---|
-| Dataset Gold sintetis di Neon dan URL/role hanya baca | Backend API dan koneksi Gold |
-| Kontrak schema, grain, dan definisi metrik | Agent, tool kueri, dan SQL guard |
-| Dua token identitas demo melalui kanal terpisah | Verifikasi token dan otorisasi percakapan |
-| `app.py` sebagai klien Streamlit yang bekerja dengan kontrak API | SQLite conversation store dan dukungan follow-up |
-| Kasus uji publik dan rubrik | Tes, evaluasi, dokumentasi, dan demo |
+| Aplikasi Streamlit | http://localhost:8501 |
+| Health API | http://localhost:8000/healthz |
+| Dokumentasi API | http://localhost:8000/docs |
 
-Anda boleh mengganti UI Streamlit, tetapi seluruh perilaku wajib dan kontrak API untuk penilaian harus tetap dapat didemonstrasikan. Anda tidak perlu membuat dataset, pipeline Bronze/Silver/Gold, login produksi, atau tool dengan side effect.
+**Tanda berhasil:** service `api` sehat dan `ui` berjalan. Jika belum siap, periksa log:
 
-## 5. Data dan Metrik yang Boleh Digunakan
+```bash
+docker compose logs --tail 100 api
+docker compose logs --tail 100 ui
+```
 
-| Tabel | Grain | Gunakan untuk |
-|---|---|---|
-| `gold.shipment_fact` | Satu baris per shipment | Filter service level, status, timestamp delivery, nilai refund, dan catatan exception |
-| `gold.carrier_daily` | Satu tanggal order dan carrier | Volume serta on-time/late rate per carrier |
-| `gold.city_daily` | Satu tanggal order dan kota tujuan | Tren harian/mingguan serta rate per kota |
+UI container mengakses API melalui `http://api:8000`. Percakapan disimpan pada named volume `conversation-data`, dengan path container `/app/data/conversations.sqlite3`.
 
-Periode dataset adalah **1 Juli sampai 20 September 2026** berdasarkan tanggal order. `metric_date` pada tabel agregat sama dengan `order_date`. Jangan menggabungkan tabel agregat carrier dan kota lalu menjumlahkan metrik dari keduanya; tindakan itu menggandakan fakta. Periksa [gold-contract.md](gold-contract.md) sebelum menulis query dan gunakan pembilang/penyebut yang tepat.
+Setelah mengubah `.env`, jalankan kembali `docker compose up -d` agar konfigurasi container diperbarui. Untuk menghentikan aplikasi tanpa menghapus volume:
 
-## 6. Rekomendasi Struktur Implementasi
+```bash
+docker compose down
+```
 
-Anda bebas menyusun modul sendiri. Struktur berikut menunjukkan tanggung jawab yang perlu ada:
+Hindari `docker compose down -v` jika riwayat percakapan masih diperlukan karena opsi tersebut menghapus named volume.
+
+## 4. Alternatif: jalankan dengan Python lokal
+
+Gunakan `.env` dari bagian 2. Jika memakai CSV, pastikan `GOLD_DATA_DIR=./data`. Hentikan service Docker yang memakai port 8000/8501 sebelum menjalankan API/UI lokal.
+
+### Windows PowerShell
+
+**Terminal pertama — instal dependensi dan jalankan API:**
+
+```powershell
+python --version
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+.\.venv\Scripts\python.exe -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+Pastikan `python --version` menunjukkan Python 3.13. Biarkan terminal API tetap berjalan.
+
+**Terminal kedua — jalankan UI dari folder proyek yang sama:**
+
+```powershell
+$env:AGENT_API_URL = 'http://localhost:8000'
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+### macOS/Linux
+
+**Terminal pertama:**
+
+```bash
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.lock.txt
+.venv/bin/python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+**Terminal kedua, dari folder proyek yang sama:**
+
+```bash
+AGENT_API_URL=http://localhost:8000 .venv/bin/python -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+Buka `http://localhost:8501`. Hentikan API/UI dengan **Ctrl+C** pada masing-masing terminal. Perintah di atas memakai interpreter `.venv` secara langsung sehingga tidak perlu mengaktifkan virtual environment secara manual.
+
+## 5. Coba aplikasi
+
+1. Pada sidebar **Demo bearer token**, masukkan nilai `DEMO_TOKEN_A` dari `.env`, bukan tulisan nama variabelnya.
+2. Klik **New conversation**.
+3. Kirim: **“Berapa jumlah kiriman pada Agustus 2026?”**
+4. Coba: **“Bagaimana tren kiriman ke Bandung per minggu pada Agustus 2026?”**, kemudian lanjutkan **“Bagaimana dibanding minggu sebelumnya?”** dalam percakapan yang sama.
+5. Buka **View data details** untuk melihat dasar data. Grafik muncul bila hasil kueri mendukung visualisasi.
+
+Mengganti token ke `DEMO_TOKEN_B` menampilkan daftar percakapan pengguna B. Token salah menghasilkan HTTP `401`; mengakses percakapan milik pengguna lain menghasilkan `404`.
+
+Respons agent memakai empat status:
+
+| Status | Makna |
+|---|---|
+| `answered` | Jawaban dihasilkan dari hasil kueri yang lolos pemeriksaan. |
+| `clarify` | Informasi belum cukup atau batas pemrosesan tercapai; pengguna diminta memperjelas/mempersempit permintaan. |
+| `refused` | Permintaan berada di luar lingkup analitik pengiriman. |
+| `no_data` | Data tidak tersedia, model dinonaktifkan, atau proses model/validasi/akses Gold gagal; baca pesan yang menyertainya. |
+
+`GET /healthz` hanya menunjukkan API hidup. Respons `{"status":"ok"}` belum membuktikan koneksi Gold atau panggilan model berhasil. Untuk memeriksa Gold dan apakah model aktif, gunakan `GET /api/v1/health/detail` dengan header `Authorization: Bearer <TOKEN_DEMO>` melalui dokumentasi API. Nilai `llm_enabled=true` menunjukkan klien model aktif, bukan bukti provider sudah berhasil menjawab.
+
+## 6. Data dan definisi metrik
+
+Kontrak dataset mencakup tanggal order **1 Juli–20 September 2026**, sehingga September tidak mencakup satu bulan penuh.
+
+| Tabel | Isi utama |
+|---|---|
+| `gold.shipment_fact` | Satu baris per kiriman, termasuk status, biaya, refund, dan catatan operasional. |
+| `gold.carrier_daily` | Ringkasan per tanggal order dan carrier. |
+| `gold.city_daily` | Ringkasan per tanggal order dan kota tujuan. |
+
+On-time rate memakai **kiriman delivered** sebagai penyebut. Refund rate adalah **nilai refund dibagi biaya kirim**, bukan persentase jumlah kiriman. Definisi lengkap ada di [gold-contract.md](gold-contract.md).
+
+## 7. Jalankan pengujian
+
+Jalankan dari terminal terpisah setelah dependensi terpasang. Untuk instalasi Docker saja, siapkan lingkungan Python bagian 4 jika ingin menjalankan test di host.
+
+**Windows PowerShell:**
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m scripts.evaluate
+.\.venv\Scripts\python.exe -m pip check
+```
+
+**macOS/Linux:**
+
+```bash
+.venv/bin/python -m pytest -q
+.venv/bin/python -m scripts.evaluate
+.venv/bin/python -m pip check
+```
+
+Test dan evaluasi memakai CSV sintetis, penyimpanan sementara, serta model tiruan. Keduanya tidak membuktikan koneksi Neon/provider nyata. `scripts.evaluate` menulis hasil ke `evidence/test-output.txt` dan `evidence/evaluation-summary.json`; gunakan hasil eksekusi sendiri saat melaporkan kelulusan.
+
+## 8. Troubleshooting
+
+| Masalah | Pemeriksaan |
+|---|---|
+| HTTP `401` | Cocokkan token UI dengan `.env`. Pastikan kedua token di server tidak kosong dan berbeda. |
+| Pesan layanan AI dinonaktifkan | Ubah `LLM_ENABLED=true`, isi API key, lalu restart API atau terapkan ulang Compose. |
+| Gold tidak tersedia / `gold_reachable=false` | Untuk Neon, periksa URL, jaringan, role, dan tiga tabel Gold. Untuk CSV, periksa file dan `GOLD_DATA_DIR` sesuai lokasi host/container. |
+| Model gagal memproses | Periksa API key, akses model, base URL, dukungan tool calling/structured output, dan log API. |
+| UI tidak terhubung ke backend | Periksa API hidup dan `AGENT_API_URL`: `http://localhost:8000` untuk UI lokal, `http://api:8000` di Compose. |
+| Port sudah digunakan | Hentikan instance API/UI lain yang memakai 8000/8501. |
+| Konfigurasi `.env` tidak diterapkan | Environment variable pada terminal lebih diprioritaskan. Restart proses lokal; untuk Docker jalankan kembali `docker compose up -d`. |
+| Hasil kosong atau batas pemrosesan tercapai | Gunakan periode dalam cakupan dataset dan persempit filter/periode. |
+
+## 9. Struktur dan dokumentasi
 
 ```text
-submission/
-├── app.py                  # Streamlit awal atau UI pengganti
-├── Dockerfile              # image API dan UI buatan peserta
-├── compose.yaml            # dua service, SQLite named volume
-├── .dockerignore           # tidak mengirim secret/SQLite ke build
-├── src/
-│   ├── api.py              # endpoint dan validasi request/response
-│   ├── auth.py             # token demo -> identitas server-side
-│   ├── conversations.py    # SQLite dan pemeriksaan pemilik
-│   ├── agent.py            # scope, konteks, tool loop, jawaban
-│   ├── sql_guard.py        # validasi tabel/kolom dan batas SQL
-│   └── gold.py             # koneksi Neon hanya baca
-├── tests/
-├── docs/
-└── README.md
+app.py                  UI Streamlit
+src/api.py              Endpoint API
+src/auth.py             Verifikasi token demo
+src/conversations.py    SQLite dan kepemilikan percakapan
+src/agent.py             Alur agent dan konteks follow-up
+src/tools.py             Tool query, klarifikasi, dan pelaporan unavailable
+src/llm_client.py        Klien model LangChain
+src/sql_guard.py         Validasi SQL
+src/query_engine.py      Validasi metrik dan eksekusi kueri
+src/gold.py              Akses Neon atau CSV lokal
+tests/                   Pengujian otomatis
+docs/                    Dokumentasi teknis dan demo
 ```
 
-Nama file di atas hanya saran; artefak yang wajib dikumpulkan tercantum di [required_files.participant.md](required_files.participant.md).
+README ini menjadi panduan utama menjalankan aplikasi. Bacaan lanjutan:
 
-## 7. Setup dan Menjalankan UI Awal
+- [Arsitektur](docs/architecture.md), [detail implementasi](docs/implementation.md), dan [langkah demo](docs/demo.md).
+- [Laporan evaluasi](docs/evaluation.md), dengan batas bukti pengujiannya.
+- [Brief tugas](brief.md), [rubrik](rubric.md), dan [berkas wajib submission](required_files.participant.md).
 
-Gunakan Python 3.11 atau lebih baru. Penyelenggara akan memberikan URL Neon role hanya baca serta dua token demo melalui kanal aman. Anda menyiapkan credential model sendiri atau menggunakan fasilitas yang disediakan kelas. Simpan semua nilai rahasia dalam environment lokal, bukan kode atau Git.
+`docs/reference/` berisi arsip historis, bukan konfigurasi runtime. Verifier referensi membandingkan dokumen dengan arsip, sehingga perubahan README aktif dapat terdeteksi sebagai perbedaan referensi.
 
-Contoh nama konfigurasi backend: `GOLD_DATABASE_URL`, `DEMO_TOKEN_A`, `DEMO_TOKEN_B`, `SQLITE_PATH`, dan variabel API key/model sesuai provider. Nama variabel backend boleh berbeda jika didokumentasikan. `AGENT_API_URL` dipakai oleh UI awal dan default ke `http://localhost:8000`.
+## Batas penggunaan
 
-Jalankan UI pada Windows PowerShell setelah backend Anda tersedia:
+SQL agent dibatasi ke satu tabel Gold per kueri, tanpa join, CTE, subquery, atau window function. Validasi aplikasi tetap harus disertai role Neon hanya baca. Model dapat salah memahami maksud pertanyaan; pemeriksaan SQL dan hasil tidak menjadi jaminan seluruh makna analisis benar.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-$env:AGENT_API_URL = "http://localhost:8000"
-python -m streamlit run app.py
-```
+Gunakan token demo dan SQLite percakapan untuk latihan. Deployment produksi memerlukan autentikasi nyata, pengelolaan secret, retensi data, penyimpanan bersama, pembatasan permintaan, dan monitoring. Uji beban/multi-instance belum dibuktikan dalam panduan ini.
 
-Di macOS/Linux:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-export AGENT_API_URL=http://localhost:8000
-python -m streamlit run app.py
-```
-
-File `requirements.txt` yang disediakan hanya berisi dependency **UI awal**. Tambahkan dependency backend pilihan Anda pada submission. Mulai API dengan perintah yang sesuai implementasi Anda dan dokumentasikan perintah tepatnya dalam README submission. UI berkomunikasi dengan API; UI tidak dapat menjawab sebelum backend berjalan.
-
-### Menjalankan submission dengan Docker
-
-Dockerfile adalah pekerjaan peserta. Mulai dari `compose.yaml` scaffold dan `.dockerignore` yang disediakan di folder milestone. Sesuaikan perintah `api` dengan entry point backend Anda bila perlu. Tetap gunakan nama service `api` dan `ui`, port internal API `8000`, port internal UI `8501`, serta `AGENT_API_URL=http://api:8000` agar grader dapat menjalankan semua submission dengan satu perintah.
-
-Buat `.env` lokal dari `.env.example`, lalu isi konfigurasi runtime backend. Jangan masukkan credential admin, `.env`, token, atau file SQLite ke image; jangan gunakan build arguments untuk secret. API harus mendengar pada `0.0.0.0:8000`, UI pada `0.0.0.0:8501`, dan SQLite harus diarahkan ke `/app/data/conversations.sqlite3` atau path lain yang dipasang pada named volume. Pastikan direktori data dapat ditulis oleh user yang menjalankan container.
-
-Windows PowerShell:
-
-```powershell
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-docker compose up --build
-```
-
-macOS/Linux:
-
-```bash
-test -f .env || cp .env.example .env
-docker compose up --build
-```
-
-Buka `http://127.0.0.1:8501`; API health check tersedia di `http://127.0.0.1:8000/healthz`. Jalankan `docker compose restart api`, lalu pastikan percakapan masih ada. `docker compose down` menghentikan service dan mempertahankan named volume; jangan gunakan `-v` sebelum verifikasi persistence selesai. Grader akan memakai Docker Compose v2 dan menjalankan perintah build/up yang sama dari root submission.
-
-## 8. Kontrak dan Contoh Alur API
-
-Endpoint dan bentuk JSON lengkap ada di [brief.md](brief.md#5-kontrak-api-untuk-ui-awal). Satu alur yang harus berhasil:
-
-1. Pengguna A membuat percakapan melalui `POST /api/v1/conversations`.
-2. A mengirim “Berapa jumlah kiriman pada Agustus 2026?” ke `/api/v1/conversations/{id}/messages`.
-3. Backend memvalidasi token dan kepemilikan ID, lalu agent mengambil data Gold.
-4. Respons mengandung `answer`, `data_basis`, dan `outcome` (`answered`, `clarify`, `refused`, atau `no_data`).
-5. A mengirim follow-up ke ID yang sama; agent mempertahankan konteks yang relevan.
-6. Pengguna B memakai token B untuk membaca ID A; backend mengembalikan `404`.
-
-Token salah menghasilkan `401`. Permintaan di luar scope menghasilkan `refused` tanpa menjalankan kueri Gold. Saat Neon atau provider gagal, berikan respons error aman; jangan mengisi jawaban dengan angka rekaan.
-
-## 9. Rencana Kerja dan Checkpoint
-
-| Sesi | Pekerjaan utama | Bukti checkpoint |
-|---|---|---|
-| 1 | Pahami Gold, buat query pembanding, koneksi role hanya baca, SQL guard, dan agent dasar | Dua pertanyaan analitik menghasilkan angka yang dapat dihitung ulang; SQL tulis ditolak |
-| 2 | API, token demo, SQLite, UI, dan follow-up | Follow-up bekerja; B tidak dapat list/read/send pada percakapan A |
-| 3 | Penolakan scope, prompt injection, error handling, Docker packaging, evaluasi, dan demo | Minimal 12 kasus tercatat; image dan Compose berjalan; serangan user dan database tidak mengubah perilaku agent |
-
-Pada setiap sesi, simpan bukti kegagalan dan perbaikannya. Lakukan pengujian langsung melalui API selain UI; menyembunyikan elemen di UI tidak cukup untuk mencegah akses lintas pengguna.
-
-## 10. File yang Wajib Dikumpulkan
-
-Kumpulkan implementasi API, UI, dependency/config contoh tanpa secret, tes, diagram arsitektur, laporan evaluasi, demo script, dan output tes yang disamarkan. Struktur dan deskripsi tiap berkas ada di [required_files.participant.md](required_files.participant.md). Gunakan [submission-checklist.md](submission-checklist.md) sebelum mengunggah.
-
-Jangan kumpulkan `.env`, token demo, API key, koneksi Neon, file SQLite berisi percakapan, dump Gold, atau raw chain-of-thought.
-
-## 11. Penilaian dan Demonstrasi
-
-Rubrik [100 poin](rubric.md) mencakup ketepatan analitik (25), keamanan SQL/Gold (20), percakapan (15), otorisasi (15), scope dan injection (15), container/reproducibility (5), serta evaluasi/dokumentasi/demo (5). Kebocoran percakapan, write ke Gold, injection yang berhasil, atau angka tanpa bukti kueri dapat memicu **hard gate** dan membatasi nilai akhir.
-
-Dalam demo 5–7 menit, tunjukkan:
-
-1. Satu pertanyaan analitik dengan angka, periode, dan dasar data.
-2. Satu follow-up dalam percakapan yang sama.
-3. Pertanyaan di luar scope atau tanpa data yang dijawab dengan tepat.
-4. Prompt injection dari pesan atau catatan database yang tidak diikuti.
-5. Pengguna B gagal membaca serta mengirim pesan ke percakapan A.
-6. Bukti SQL hanya baca dan ringkasan hasil evaluasi.
-
-> **Production Note:** Token demo dan SQLite lokal cukup untuk latihan ini. Dalam sistem nyata, identitas, retensi percakapan, penyimpanan bersama, audit, pemantauan, dan pengelolaan secret memerlukan desain tambahan. Jelaskan gap paling penting untuk solusi Anda.
+Jangan mengunggah `.env`, API key, token, URL koneksi berkredensial, atau SQLite berisi percakapan. Pesan, konteks percakapan, dan informasi yang dibutuhkan penyusunan kueri dapat dikirim ke provider model; pertimbangkan isinya sebelum memakai informasi sensitif.
