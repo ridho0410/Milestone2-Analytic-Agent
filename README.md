@@ -125,49 +125,8 @@ docker compose down
 
 Hindari `docker compose down -v` jika riwayat percakapan masih diperlukan karena opsi tersebut menghapus named volume.
 
-## 4. Alternatif: jalankan dengan Python lokal
 
-Gunakan `.env` dari bagian 2. Jika memakai CSV, pastikan `GOLD_DATA_DIR=./data`. Hentikan service Docker yang memakai port 8000/8501 sebelum menjalankan API/UI lokal.
-
-### Windows PowerShell
-
-**Terminal pertama — instal dependensi dan jalankan API:**
-
-```powershell
-python --version
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
-.\.venv\Scripts\python.exe -m uvicorn src.api:app --host 127.0.0.1 --port 8000
-```
-
-Pastikan `python --version` menunjukkan Python 3.13. Biarkan terminal API tetap berjalan.
-
-**Terminal kedua — jalankan UI dari folder proyek yang sama:**
-
-```powershell
-$env:AGENT_API_URL = 'http://localhost:8000'
-.\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501
-```
-
-### macOS/Linux
-
-**Terminal pertama:**
-
-```bash
-python3.13 -m venv .venv
-.venv/bin/python -m pip install -r requirements.lock.txt
-.venv/bin/python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
-```
-
-**Terminal kedua, dari folder proyek yang sama:**
-
-```bash
-AGENT_API_URL=http://localhost:8000 .venv/bin/python -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501
-```
-
-Buka `http://localhost:8501`. Hentikan API/UI dengan **Ctrl+C** pada masing-masing terminal. Perintah di atas memakai interpreter `.venv` secara langsung sehingga tidak perlu mengaktifkan virtual environment secara manual.
-
-## 5. Coba aplikasi
+## 4. Coba aplikasi
 
 1. Pada sidebar **Demo bearer token**, masukkan nilai `DEMO_TOKEN_A` dari `.env`, bukan tulisan nama variabelnya.
 2. Klik **New conversation**.
@@ -188,7 +147,7 @@ Respons agent memakai empat status:
 
 `GET /healthz` hanya menunjukkan API hidup. Respons `{"status":"ok"}` belum membuktikan koneksi Gold atau panggilan model berhasil. Untuk memeriksa Gold dan apakah model aktif, gunakan `GET /api/v1/health/detail` dengan header `Authorization: Bearer <TOKEN_DEMO>` melalui dokumentasi API. Nilai `llm_enabled=true` menunjukkan klien model aktif, bukan bukti provider sudah berhasil menjawab.
 
-## 6. Data dan definisi metrik
+## 5. Data dan definisi metrik
 
 Kontrak dataset mencakup tanggal order **1 Juli–20 September 2026**, sehingga September tidak mencakup satu bulan penuh.
 
@@ -200,7 +159,7 @@ Kontrak dataset mencakup tanggal order **1 Juli–20 September 2026**, sehingga 
 
 On-time rate memakai **kiriman delivered** sebagai penyebut. Refund rate adalah **nilai refund dibagi biaya kirim**, bukan persentase jumlah kiriman. Definisi lengkap ada di [gold-contract.md](gold-contract.md).
 
-## 7. Jalankan pengujian
+## 6. Jalankan pengujian
 
 Jalankan dari terminal terpisah setelah dependensi terpasang. Untuk instalasi Docker saja, siapkan lingkungan Python bagian 4 jika ingin menjalankan test di host.
 
@@ -222,7 +181,7 @@ Jalankan dari terminal terpisah setelah dependensi terpasang. Untuk instalasi Do
 
 Test dan evaluasi memakai CSV sintetis, penyimpanan sementara, serta model tiruan. Keduanya tidak membuktikan koneksi Neon/provider nyata. `scripts.evaluate` menulis hasil ke `evidence/test-output.txt` dan `evidence/evaluation-summary.json`; gunakan hasil eksekusi sendiri saat melaporkan kelulusan.
 
-## 8. Troubleshooting
+## 7. Troubleshooting
 
 | Masalah | Pemeriksaan |
 |---|---|
