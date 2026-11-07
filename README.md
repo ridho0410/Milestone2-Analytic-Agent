@@ -98,6 +98,7 @@ Setelah `.env` siap:
 docker compose up -d --build
 docker compose ps
 ```
+**Arahkan ke direktori jika gagal: cd .\Milestone2-Analytic-Agent-main\Ridho-Milestone2-Analytic-Agent**
 
 Buka:
 
