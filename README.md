@@ -98,7 +98,6 @@ Setelah `.env` siap:
 docker compose up -d --build
 docker compose ps
 ```
-**Arahkan ke direktori jika gagal: cd .\Milestone2-Analytic-Agent-main\Ridho-Milestone2-Analytic-Agent**
 
 Buka:
 
@@ -125,8 +124,49 @@ docker compose down
 
 Hindari `docker compose down -v` jika riwayat percakapan masih diperlukan karena opsi tersebut menghapus named volume.
 
+## 4. Alternatif: jalankan dengan Python lokal
 
-## 4. Coba aplikasi
+Gunakan `.env` dari bagian 2. Jika memakai CSV, pastikan `GOLD_DATA_DIR=./data`. Hentikan service Docker yang memakai port 8000/8501 sebelum menjalankan API/UI lokal.
+
+### Windows PowerShell
+
+**Terminal pertama — instal dependensi dan jalankan API:**
+
+```powershell
+python --version
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
+.\.venv\Scripts\python.exe -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+Pastikan `python --version` menunjukkan Python 3.13. Biarkan terminal API tetap berjalan.
+
+**Terminal kedua — jalankan UI dari folder proyek yang sama:**
+
+```powershell
+$env:AGENT_API_URL = 'http://localhost:8000'
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+### macOS/Linux
+
+**Terminal pertama:**
+
+```bash
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.lock.txt
+.venv/bin/python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+**Terminal kedua, dari folder proyek yang sama:**
+
+```bash
+AGENT_API_URL=http://localhost:8000 .venv/bin/python -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+Buka `http://localhost:8501`. Hentikan API/UI dengan **Ctrl+C** pada masing-masing terminal. Perintah di atas memakai interpreter `.venv` secara langsung sehingga tidak perlu mengaktifkan virtual environment secara manual.
+
+## 5. Coba aplikasi
 
 1. Pada sidebar **Demo bearer token**, masukkan nilai `DEMO_TOKEN_A` dari `.env`, bukan tulisan nama variabelnya.
 2. Klik **New conversation**.
@@ -147,7 +187,7 @@ Respons agent memakai empat status:
 
 `GET /healthz` hanya menunjukkan API hidup. Respons `{"status":"ok"}` belum membuktikan koneksi Gold atau panggilan model berhasil. Untuk memeriksa Gold dan apakah model aktif, gunakan `GET /api/v1/health/detail` dengan header `Authorization: Bearer <TOKEN_DEMO>` melalui dokumentasi API. Nilai `llm_enabled=true` menunjukkan klien model aktif, bukan bukti provider sudah berhasil menjawab.
 
-## 5. Data dan definisi metrik
+## 6. Data dan definisi metrik
 
 Kontrak dataset mencakup tanggal order **1 Juli–20 September 2026**, sehingga September tidak mencakup satu bulan penuh.
 
@@ -159,15 +199,65 @@ Kontrak dataset mencakup tanggal order **1 Juli–20 September 2026**, sehingga 
 
 On-time rate memakai **kiriman delivered** sebagai penyebut. Refund rate adalah **nilai refund dibagi biaya kirim**, bukan persentase jumlah kiriman. Definisi lengkap ada di [gold-contract.md](gold-contract.md).
 
-## 6. Jalankan pengujian
+## 7. Jalankan pengujian
 
-Jalankan dari terminal terpisah setelah dependensi terpasang. Untuk instalasi Docker saja, siapkan lingkungan Python bagian 4 jika ingin menjalankan test di host.
+Tes offline memakai tiga CSV sintetis sebagai sumber data, SQLite sementara untuk percakapan, serta model tiruan. Setelah dataset dan dependensi tersedia, tes tidak memerlukan koneksi Neon, API key, atau server API/UI yang sedang berjalan.
+
+### 7.1. Dapatkan dataset CSV
+
+Dataset tersedia di [folder data repository](https://github.com/ridho0410/Milestone2-Analytic-Agent/tree/main/Ridho-Milestone2-Analytic-Agent/data).
+
+**Jika baru mengambil proyek**, clone repository lalu masuk ke folder aplikasi:
+
+```bash
+git clone https://github.com/ridho0410/Milestone2-Analytic-Agent.git
+cd Milestone2-Analytic-Agent/Ridho-Milestone2-Analytic-Agent
+```
+
+Ketiga CSV sudah disertakan pada repository. Jika sudah clone atau mengunduh ZIP proyek, masuk ke folder `Ridho-Milestone2-Analytic-Agent` dan periksa `data/`; tidak perlu mengunduh ulang jika filenya sudah ada.
+
+**Jika CSV belum tersedia pada salinan proyek**, gunakan tautan berikut:
+
+| File | Tautan unduhan CSV |
+|---|---|
+| `shipment_fact.csv` | [Unduh shipment_fact.csv](https://raw.githubusercontent.com/ridho0410/Milestone2-Analytic-Agent/main/Ridho-Milestone2-Analytic-Agent/data/shipment_fact.csv) |
+| `carrier_daily.csv` | [Unduh carrier_daily.csv](https://raw.githubusercontent.com/ridho0410/Milestone2-Analytic-Agent/main/Ridho-Milestone2-Analytic-Agent/data/carrier_daily.csv) |
+| `city_daily.csv` | [Unduh city_daily.csv](https://raw.githubusercontent.com/ridho0410/Milestone2-Analytic-Agent/main/Ridho-Milestone2-Analytic-Agent/data/city_daily.csv) |
+
+Simpan file dengan nama aslinya, tanpa tambahan `.txt`. Untuk mengunduh langsung melalui **Windows PowerShell**, jalankan dari folder aplikasi:
+
+```powershell
+New-Item -ItemType Directory -Path 'data' -Force | Out-Null
+$csvBaseUrl = 'https://raw.githubusercontent.com/ridho0410/Milestone2-Analytic-Agent/main/Ridho-Milestone2-Analytic-Agent/data'
+Invoke-WebRequest -Uri "$csvBaseUrl/shipment_fact.csv" -OutFile 'data/shipment_fact.csv'
+Invoke-WebRequest -Uri "$csvBaseUrl/carrier_daily.csv" -OutFile 'data/carrier_daily.csv'
+Invoke-WebRequest -Uri "$csvBaseUrl/city_daily.csv" -OutFile 'data/city_daily.csv'
+```
+
+**Tanda siap:** susunan folder aplikasi menjadi seperti ini:
+
+```text
+Ridho-Milestone2-Analytic-Agent/
+├── app.py
+├── requirements.lock.txt
+├── src/
+├── tests/
+└── data/
+    ├── shipment_fact.csv
+    ├── carrier_daily.csv
+    └── city_daily.csv
+```
+
+Snapshot CSV yang diperiksa berisi 600 baris kiriman, 246 baris ringkasan carrier, dan 323 baris ringkasan kota, tidak termasuk header. Checksum snapshot tersebut cocok dengan `data/manifest.json` pada paket proyek.
+
+### 7.2. Jalankan tes offline
+
+Jalankan dari folder aplikasi yang berisi `tests/`, setelah dependensi terpasang melalui `requirements.lock.txt`. Untuk instalasi Docker saja, siapkan lingkungan Python bagian 4 jika ingin menjalankan tes di host.
 
 **Windows PowerShell:**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m scripts.evaluate
 .\.venv\Scripts\python.exe -m pip check
 ```
 
@@ -175,13 +265,18 @@ Jalankan dari terminal terpisah setelah dependensi terpasang. Untuk instalasi Do
 
 ```bash
 .venv/bin/python -m pytest -q
-.venv/bin/python -m scripts.evaluate
 .venv/bin/python -m pip check
 ```
 
-Test dan evaluasi memakai CSV sintetis, penyimpanan sementara, serta model tiruan. Keduanya tidak membuktikan koneksi Neon/provider nyata. `scripts.evaluate` menulis hasil ke `evidence/test-output.txt` dan `evidence/evaluation-summary.json`; gunakan hasil eksekusi sendiri saat melaporkan kelulusan.
+**Tanda berhasil:** pytest selesai tanpa test gagal; ringkasan menampilkan jumlah test yang lulus, dan `pip check` tidak melaporkan dependensi yang bermasalah. Gunakan hasil eksekusi sendiri saat melaporkan kelulusan.
 
-## 7. Troubleshooting
+`tests/conftest.py` otomatis memilih backend CSV/SQLite, mengosongkan API key, dan mengisolasi percakapan. Tidak perlu mengganti `.env` yang biasa dipakai untuk demo Neon atau model aktif. Jika muncul pesan CSV tidak ditemukan, periksa nama file dan susunan folder pada bagian 7.1.
+
+Panduan ini menggunakan pytest karena folder `scripts/` belum disertakan pada versi repository yang diperiksa. Perintah `python -m scripts.evaluate` tidak digunakan pada paket tersebut.
+
+Tes offline memeriksa perilaku aplikasi dengan data dan model uji; kelulusannya tidak membuktikan koneksi Neon atau provider model nyata. Untuk mencoba chatbot interaktif dengan CSV, model aktif dan API key tetap diperlukan seperti dijelaskan pada bagian 2.
+
+## 8. Troubleshooting
 
 | Masalah | Pemeriksaan |
 |---|---|
